@@ -873,6 +873,7 @@ def fragmentor(FASTA,fastaList,nseq,nfrags):
     '''
     fragments and writes frags
     '''
+    out_file_list = []
     aslice      = int(nseq/nfrags) ## not round to float, float added to remainder
     remainder   = nseq%nfrags
     print("--Number of seqeunces:%s | required fragments:%s | computed splice:%s | remainder seqeunces:%s" % (nseq,nfrags,aslice,remainder))
@@ -888,6 +889,7 @@ def fragmentor(FASTA,fastaList,nseq,nfrags):
             afile   = "%s.frag.%s.fa" % (FASTA.rpartition('.')[0],x)
             fh_out  = open(afile,'w')
 
+        out_file_list.append(afile)
         if x < nfrags: ## '<' because the 'x' starts from zero and goes till nfrags-1. if nfrags = 30, x will go from 0 to 29. The last bin (nfrag+1) will have value 30 and is captured below
             ## Slice list
             print("--Fragment:%s | sliceStart:%s | sliceEnd:%s" % (acount,sliceStart,sliceEnd))
@@ -915,7 +917,7 @@ def fragmentor(FASTA,fastaList,nseq,nfrags):
 
         fh_out.close()
 
-    return None
+    return out_file_list
 
 def fragFASTA(FASTA,fastaList):
 
@@ -959,8 +961,7 @@ def fragFASTA(FASTA,fastaList):
 
             # retcode = subprocess.call(["pyfasta","split", "-n", nfrags, FASTA]) - Deprecated
 
-            fragmentor(FASTA,fastaList,nseq,nfrags)
-            fls = [file for file in os.listdir() if re.search(r'.*\.frag\.[0-9].*\.fa', file)] ## file list using regex
+            fls = fragmentor(FASTA,fastaList,nseq,nfrags)
             #fls = glob.glob(r'%s.[0-9]{1-3}.fa' % (FASTA.split('.')[0])) ## fragmented file list ##
             #print ('The fragments: %s' % (fls))
                
@@ -971,8 +972,7 @@ def fragFASTA(FASTA,fastaList):
                 print ("--Header based fragmentation in process for '%s' file" % (FASTA))
                 # retcode = subprocess.call(["pyfasta","split", "-n", nfrags, FASTA]) - Deprecated
                 
-                fragmentor(FASTA,fastaList,nseq,frags)
-                fls = [file for file in os.listdir() if re.search(r'.*\.frag\.[0-9].*\.fa', file)]
+                fls = fragmentor(FASTA,fastaList,nseq,frags)
 
             
             #print ('The fragments: %s' % (fls))
@@ -1089,6 +1089,8 @@ def tarFind4(frag):
         print ("There is some problem with miRNA mapping '%s' to cDNA/genomic seq index" % (frag))
         print ("Script exiting.......")
         sys.exit()
+        
+    return file_out
 
 def tarParse3(targComb):
     '''
@@ -1559,10 +1561,11 @@ def mapdd2trans(anIndex):#
         print ("Script exiting.......")
         sys.exit()
 
-def FileCombine():
+def FileCombine(targ_fls=None):
 
     print('\n****************************************')
-    targ_fls = [file for file in os.listdir('./predicted') if file.endswith ('.targ')]
+    if targ_fls==None:
+        targ_fls = [file for file in glob.glob('./predicted/*.targ')]
     print ('Target files:',targ_fls)
     print ('\nCombining all the target prediction files for parsing and scoring\n')
     
@@ -1571,7 +1574,7 @@ def FileCombine():
     
     for x in targ_fls:
         print (x)
-        targfile = open('./predicted/%s' % (x), 'r')
+        targfile = open(x, 'r')
         #targfile.readline()
         data = targfile.read()
         targfile.close()
@@ -1612,7 +1615,7 @@ def PP(module,alist):
     nprocPP = round((args.accel/int(nspread))+1) #
     print('\nnprocPP:%s\n' % (nprocPP))
     npool = Pool(int(nprocPP))
-    npool.map(module, alist)
+    return npool.map(module, alist)
     
 def PPmultiple(module,alist1,alist2):
     start = time.time()
@@ -2850,11 +2853,11 @@ def main():
         #    tarFind4(i)
         
         ## Parallel mode
-        PP(tarFind4,fragList)
+        targ_list = PP(tarFind4,fragList)
         end     = time.time()
         print ('Target Prediction time: %s' % (round(end-start,2)))
         
-        targComb = FileCombine()
+        targComb = FileCombine(targ_list)
         #targComb = 'All.targs' ## Test - open line above when real
         
         start = time.time()###time start
