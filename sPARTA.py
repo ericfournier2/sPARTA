@@ -66,6 +66,9 @@ parser.add_argument('-accel', default='Y', help='Y to use '\
 parser.add_argument('--standardCleave', action='store_true', default=False,
     help='Flag to use standard cleave locations (10th, 11th and 12th '\
     'positions), or rules more specific to miRNA size')
+parser.add_argument('-cleaveMode', default='S', 
+    help="Define acceptable miRNA cleaving sites. Use 'S' for 10th, 11th and 12th"\
+    "positions, 'L' for length depended positions, or specify an 'X-Y' range.")    
 parser.add_argument('--viewerdata', action='store_true', default=False,
     help='Flag to prepare additional SAM files for mapped PARE reads and '\
     'BED file validated targets from all libraries combined')
@@ -168,6 +171,27 @@ if(args.validate and not args.libs):
 
 # genomeFeature must be an integer
 args.genomeFeature = int(args.genomeFeature)
+
+# cleaveMode must be 'S', 'L', or a range of integers.
+cleave_regex = re.compile("(\d+)-(\d+)")
+cleave_match = cleave_regex.match(args.cleaveMode)
+if args.cleaveMode != "S" and args.cleaveMode != "L" and not cleave_match:
+    print("Cleave mode must be 'S', 'L' or a valid range of positive integers (X-Y)")
+    exit()
+    
+if cleave_match:
+    try:
+        low_value=int(cleave_match.group(1)) - 1
+        high_value=int(cleave_match.group(2)) - 1
+        if low_value > high_value:
+            print("When specifying cleaveMode as a range (X-Y), X must be smaller than Y.")
+            exit()
+        if low_value < 0:
+            print("When specifying cleaveMode as a range (X-Y), both X and Y must be positive integers larger than zero.")
+            exit()
+    except ValueError:
+        print("When specifying cleaveMode as a range (X-Y), both X and Y must be positive integers.")
+        exit()
 
 ####################################################################
 #### sPARTA FUNCTIONS ##############################################
@@ -1092,145 +1116,6 @@ def tarFind4(frag):
         
     return file_out
 
-def tarParse3(targComb):
-    '''
-    ## Deprecated - Apr-1 [Retained for backward compatibility]
-    '''
-    
-    print ('\n**Target prediction results are being generated**')
-    #
-    print ("File for parsing: '%s' in predicted folder\n" % (targComb))
-    fh_in = open(targComb,'r')
-    TarPred =  './predicted/%s.parsed.csv' % (targComb.rpartition('/')[-1]) ### Similar to parsed target finder format
-    fh_out = open(TarPred,'w')
-    fh_out.write('miRname,Target,BindSite,miRseq,tarSeq,Score,Mismatch,CIGAR\n')
-    
-    
-    acount = 0 #
-    parseCount = 0 #
-    for i in fh_in:
-        acount += 1
-        ent = i.strip('\n').split('\t')
-        #print('\n%s\n' % ent)
-        miRrevcomp = ent[9] #
-        miRrev = miRrevcomp.translate(str.maketrans("TACG","AUGC")) # 
-        tarHash = list(miRrevcomp) #
-        
-        gapinfo = ent[5]
-        gappos = re.split("[A-Z]",gapinfo) ## 
-        gapNuc = re.findall("[A-Z]",gapinfo)
-        posCount = 0
-        for x,y in zip(gappos[:-1],gapNuc):## I
-            #print(x,y)
-            if y == 'I':
-                #tarHash.insert(posCount,'-') ## 
-                tarHash[posCount] = '-' ###OK
-                posCount += int(x)
-            else:
-                posCount += int(x)       
-
-        misinfo = ent[-2].split(':')[-1] #
-        mispos = re.split("[A,T,G,C,N]",misinfo) #
-        misposCorrect = [int(x)+1 for x in mispos] # 
-        misNuc = re.findall("[A,T,G,C,N]",misinfo) #
-        posCount = 0
-        for x,y in zip(misposCorrect,misNuc):
-            #print(x,y)
-            posCount += x #
-            gaps = tarHash[:posCount-1].count('-') #
-            #print ('Position of mismatch:%s' % (posCount))
-            tarHash[posCount-1+gaps] = y
-
-        tar = ''.join(tarHash).replace("T","U") ##
-        bindsite = '%s-%d' % (ent[3],int(ent[3])+(len(miRrev)-1))
-
-        
-        ##
-        gap = [] #
-        mis = [] #
-        wobble = [] #
-        nt_cnt = 1 #
-
-        for x,y in zip(miRrevcomp[::-1].replace("T","U"),tar[::-1]):#
-            if x == '-' or y == '-':
-                #print('gap')
-                gap.append(nt_cnt)
-                if y == '-':
-                    nt_cnt+=1
-                
-            elif x == 'A' and y == 'G': #
-                #print ('wobble')
-                wobble.append(nt_cnt)
-                nt_cnt+=1
-            elif x == 'C' and y == 'U': #
-                #print ('wobble')
-                wobble.append(nt_cnt)
-                nt_cnt+=1
-            elif x == y:
-                #print('match')
-                nt_cnt+=1
-            else:
-                #print('mismatch')
-                mis.append(nt_cnt)
-                nt_cnt+=1
-                
-
-        score = 0   ## Initialize
-        #print (mis)
-        
-        if args.tarScore == 'S': #
-            mis2 = list(mis)
-            #if set([10,11]).issubset(mis): 
-            if 10 in mis and 11 in mis: 
-                score += 2.5
-                #print('Removing 10')
-                mis2.remove(10)
-                #print ('Removing 11')
-                mis2.remove(11) #
-                
-            for i in mis2:
-                    score += 1
-            for i in gap:
-                score += 1.5
-            for i in wobble:
-                if (i+1 in mis) or (i-1 in mis): #
-                    score += 1.5
-                elif (i+1) in mis and (i-1 in mis):
-                    score += 2
-                else:
-                    score += 0.5
-        else:
-            ##Heuristic and Exhaustive
-            for i in mis:
-                if i>= 2 and i<=13:
-                    score += 2
-                else:
-                    score += 1
-            for i in gap:
-                if i>= 2 and i<=13:
-                    score += 2
-                else:
-                    score += 1
-            for i in wobble:
-                if i>= 2 and i<=13:
-                    score += 1
-                    #print ('Wobble pos:%s' % (i))
-                else:
-                    score += 0.5
-                    #print ('Wobble pos:%s' % (i))
-        ###################
-            
-        #print(ent[0],ent[2],bindsite,miRrev,tar,score,misinfo,gapinfo)## MiRname, Tarname, mirSeq,Taerseq,binding site
-        fh_out.write('>%s,%s,%s,%s,%s,%s,%s,%s\n' % (ent[0],ent[2],bindsite,miRrev,tar,score,misinfo,gapinfo))
-        parseCount  += 1
-    
-    
-    print("Total number of interactions from 'miRferno':%s AND total interactions scored: %s" % (acount,parseCount))
-    fh_in.close()
-    fh_out.close()
-
-    return TarPred
-
 def tarParse4(targComb):
 
     '''
@@ -1750,7 +1635,18 @@ def validatedTargetsFinder(PAGeDict):
     cleaveLocations[23] = [9, 10, 11, 12]
     cleaveLocations[24] = [9, 10, 11, 12]
     cleaveStandard = [9, 10, 11]
-
+    cleaveCustom = []
+    
+    cleave_match = re.compile("(\d+)-(\d+)").match(args.cleaveMode)
+    if cleave_match:
+        try:
+            low_value=int(cleave_match.group(1)) - 1
+            high_value=int(cleave_match.group(2)) - 1
+            cleaveCustom = range(low_value, high_value)
+        except ValueError:
+            print("When specifying cleaveMode as a range (X-Y), both X and Y must be positive integers.")
+            exit()    
+    
     validatedTargets = []
     for target in targetFinderList:
         gene = target[1]
@@ -1769,29 +1665,27 @@ def validatedTargetsFinder(PAGeDict):
             #
             #
             #
-
-            # If the length of the miRNA is in our dictionary and the cleave
-            # location exists in the dictionary, add it to the target lists
-            if(not args.standardCleave and length in cleaveLocations.keys()):
-                for cleaveLocation in cleaveLocations[length]:
-                    if(str(end-cleaveLocation) in currDict):
-                        targetAbundances.append(currDict[str(end -
-                            cleaveLocation)][0])
-                        targetCategories.append(currDict[str(end -
-                            cleaveLocation)][1])
-                        targetLocations.append(end - cleaveLocation)
-
-            # If the length of the miRNA is not in our dictionary, we will 
-            # just investigate the 10th 11th and 12th positions 
+            
+            
+            if args.cleaveMode == 'S' or args.standardCleave or not (length in cleaveLocations.keys()):
+                # Standard mode, or extended mode where this specific length
+                # is not known
+                cleaveDict = cleaveStandard
+            elif args.cleaveMode == 'L' and length in cleaveLocations.keys():
+                # If the length of the miRNA is in our dictionary and the cleave
+                # location exists in the dictionary, add it to the target lists
+                cleaveDict = cleaveLocations[length]
             else:
-                for cleaveLocation in cleaveStandard:
-                    if(str(end-cleaveLocation) in currDict):
-                        targetAbundances.append(currDict[str(end -
-                            cleaveLocation)][0])
-                        targetCategories.append(currDict[str(end -
-                            cleaveLocation)][1])
-                        targetLocations.append(end - cleaveLocation)
-                
+                # In custom mode, we'll use the custom range.
+                cleaveDict=cleaveCustom
+                    
+            for cleaveLocation in cleaveStandard:
+                if(str(end-cleaveLocation) in currDict):        
+                    targetAbundances.append(currDict[str(end - cleaveLocation)][0])
+                    targetCategories.append(currDict[str(end - cleaveLocation)][1])
+                    targetLocations.append(end - cleaveLocation)             
+
+             
 
             # If there is a PARE cleavage at any of the above positions,
             # find the best candidate for retainer.
