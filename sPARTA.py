@@ -1679,7 +1679,7 @@ def validatedTargetsFinder(PAGeDict):
                 # In custom mode, we'll use the custom range.
                 cleaveDict=cleaveCustom
                     
-            for cleaveLocation in cleaveStandard:
+            for cleaveLocation in cleaveDict:
                 if(str(end-cleaveLocation) in currDict):        
                     targetAbundances.append(currDict[str(end - cleaveLocation)][0])
                     targetCategories.append(currDict[str(end - cleaveLocation)][1])
